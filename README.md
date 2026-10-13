@@ -8,7 +8,7 @@ This is the starter repo for **Project 5: Mixtape Bug Hunt**. The app has five o
 
 ## App Structure
 
-```
+```txt
 ai201-project5-mixtape-starter/
 ├── app.py                      # Flask app factory and DB setup
 ├── models.py                   # SQLAlchemy models for all entities
@@ -84,7 +84,7 @@ pytest tests/
 ## The Five Open Issues
 
 | # | Title | Affected service |
-|---|-------|-----------------|
+| --- | ------- | ----------------- |
 | 1 | My listening streak keeps resetting | `streak_service.py` |
 | 2 | Friends Listening Now shows people from yesterday | `feed_service.py` |
 | 3 | The same song keeps showing up twice in search | `search_service.py` |
@@ -110,7 +110,7 @@ Understanding the full call chain is part of the exercise — don't skip to the 
 
 Create a branch named `bugfix/mixtape` for your fixes. Each bug fix should be its own commit using conventional format:
 
-```
+```txt
 fix: correct Sunday boundary condition in streak reset logic
 ```
 
