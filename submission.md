@@ -60,4 +60,24 @@ Mixtape is a Flask + Flask-SQLAlchemy app backed by SQLite (`instance/mixtape.db
 
 ## Root Cause Analyses
 
-_(One entry per fixed bug, added as each fix is committed.)_
+_(One entry per fixed bug. Each entry's "How I reproduced it" is filled in below; the remaining fields are added as each fix is committed.)_
+
+### Issue #5 — The last song in a playlist never shows up
+
+**How I reproduced it:** Created a playlist and inserted three songs into `playlist_entries` with positions 1, 2, 3 (the same way `seed_data.py` populates playlists). After each insert I called `GET /playlists/<id>/songs`. The endpoint returned `count=0` after 1 song, `count=1` after 2 songs, and `count=2` after 3 songs: always one fewer than the playlist holds, and the missing song was always the newest. The existing tests `test_playlist_returns_all_songs` and `test_playlist_returns_songs_in_order` also fail.
+
+**How I found the root cause:** I followed the call chain top-down: `GET /playlists/<id>/songs` in `routes/playlists.py` calls `get_playlist_songs()` in `services/playlist_service.py`, and the route does nothing but `len()` and `jsonify` the list it receives. That ruled out the route. In the service, the query joins `Song` to `playlist_entries`, filters by playlist, and orders by `position`. The query result itself looked correct, so I checked what happens between the query and the return. The final line is `return [song.to_dict() for song in songs[:-1]]`. I was confident this was the cause, and not just a suspicious spot, because the report says the missing song is always the newest and that adding another song reveals the previous one. That is exactly what dropping the last element of a list ordered by ascending position would do.
+
+**The root cause:** `get_playlist_songs()` documents that it "returns all songs in the playlist", and its query correctly fetches every row ordered by `position`. But the return statement slices the result with `songs[:-1]`, which discards the final element. Because the list is sorted by ascending position, the final element is always the most recently added song. A playlist with N songs therefore returned N-1. Adding a song shifts the previous last song out of the slice's reach, which explains why adding a new song "freed" the old one and hid the new one.
+
+**My fix:** Changed `songs[:-1]` to `songs` in `get_playlist_songs()` (`services/playlist_service.py`), so every queried song is serialised. This removes the slice, which was the only step that dropped data. The query and its `position` ordering were already correct, so nothing else needed to change.
+
+**My side-effect check:** Ran `tests/test_playlists.py`: all 3 pass, including the ordering test, so songs still come back in ascending `position`. Re-ran my reproduction through the real endpoint: counts are now 1, 2, 3 after each insert instead of 0, 1, 2. The boundary case of an empty playlist still returns an empty list, since the query returns nothing. `get_playlist()` and `get_user_playlists()` don't use this function, so they are unaffected.
+
+### Issue #3 — The same song keeps showing up twice in search
+
+**How I reproduced it:** Created a song "Crown Heights Anthem" by "Borough Kings" with three tags, plus three songs with no tags. `GET /songs/search?q=Anthem` returned `count=3`, with the same song three times, matching the number of tags. `GET /songs/search?q=Song0` (an untagged song) returned `count=1`. So the duplication is conditional on a song having multiple tags (one extra row per tag). The existing test `test_search_no_duplicates_multi_tag_song` also fails.
+
+### Issue #1 — My listening streak keeps resetting
+
+**How I reproduced it:** Posted to `POST /songs/<id>/listen` once per day on consecutive days, with the clock patched to noon UTC on each day, then read `GET /users/<id>/streak`. Fri 7 Jun 2024 gave 1, Sat 8 Jun gave 2, **Sun 9 Jun gave 1**, Mon 10 Jun gave 2, and Tue 11 Jun gave 3. Every consecutive-day listen incremented the streak except the one landing on a Sunday, which reset it to 1, matching the report that it only happens on Sundays. The existing test `test_streak_increments_on_sunday` also fails.
