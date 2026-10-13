@@ -10,13 +10,15 @@ I used Claude Code (Claude Sonnet 5.5) inside VS Code for this whole project. It
 
 **Finding the root causes.** I only asked Claude to trace and explain code, not to guess at bugs first. For each bug it followed the call chain from the route into the service and pointed at the specific line. For #4 it compared the working `add_to_playlist()` against `rate_song()` and found that the second had no `create_notification()` call. I verified each diagnosis by running the code, and by checking that the fix changed the result.
 
-**Where I verified or overrode its output**
+**Where I verified or overrode its output:**
+
 - The first reproduction script for #5 crashed because `POST /playlists/<id>/songs` fails on the NOT NULL `position` and `added_by` columns, so I could not use the API to build the playlist. I switched to inserting rows directly, as `seed_data.py` does. This crash is a separate problem outside the five issues. I left it unfixed and did not count it as part of Issue #5.
 - For #3 there were two options, removing the unused join or adding `.distinct()`. I chose to remove the join, because `.distinct()` would have hidden the extra rows while leaving the pointless join in place.
 - I confirmed that the regression tests fail without the fix. I stashed the fix for #4 and for #2 and re-ran the tests.
 - I checked both sides of the boundary for #1 (skipped day, same day, Sunday) and #2 (23:59:59 yesterday and 00:00:00 today).
 
-**Honest limits**
+**Honest limits:**
+
 - The existing failing tests and the README's list of affected service files made #1, #3 and #5 much easier than a real unfamiliar codebase would be. Claude found the cause of each in a single pass.
 - Claude read all the service files, including the buggy lines, while writing the codebase map in Milestone 1. The map itself describes only the architecture, but I did not do the orientation step from a state of knowing nothing about the bugs.
 - I did not hit a case where Claude's explanation was wrong, so there is no example of overriding a bad diagnosis. The only issue it ran into was the reproduction script crash described above.
@@ -138,7 +140,7 @@ _(One entry per fixed bug. Each entry's "How I reproduced it" is filled in below
 
 **How I reproduced it:** Created a viewer (nova) who is friends with darius, and gave darius one listening event at 11pm on the previous day. With the clock pinned to 9am the next morning, I called `GET /feed/<nova_id>/listening-now`. It returned `count=1` with darius in it, ten hours after his last listen and on a different calendar day. Moving the pinned clock to 11pm that day, exactly 24 hours after the listen, was the first time the feed stopped including him, which matches the report that yesterday's listens "hang around until the same time the next day".
 
-**How I found the root cause:** I followed `GET /feed/<id>/listening-now` in `routes/feed.py`, which only calls `get_friends_listening_now()` in `services/feed_service.py` and wraps the result. In that function the friend IDs come from `user.friends`, and the events are filtered with `ListeningEvent.listened_at >= cutoff`. The filter and the per-friend deduplication both looked correct, so the question was what `cutoff` is. It is `datetime.now(timezone.utc) - RECENT_THRESHOLD`, and `RECENT_THRESHOLD` is defined at the top of the module as `timedelta(hours=24)`. The report says "only friends who have listened *today*" should appear, and the sibling function `get_activity_feed()` explicitly documents that it is the one that is not filtered by recency. That made it clear the threshold was measuring the wrong thing.
+**How I found the root cause:** I followed `GET /feed/<id>/listening-now` in `routes/feed.py`, which only calls `get_friends_listening_now()` in `services/feed_service.py` and wraps the result. In that function the friend IDs come from `user.friends`, and the events are filtered with `ListeningEvent.listened_at >= cutoff`. The filter and the per-friend deduplication both looked correct, so the question was what `cutoff` is. It is `datetime.now(timezone.utc) - RECENT_THRESHOLD`, and `RECENT_THRESHOLD` is defined at the top of the module as `timedelta(hours=24)`. The report says "only friends who have listened _today_" should appear, and the sibling function `get_activity_feed()` explicitly documents that it is the one that is not filtered by recency. That made it clear the threshold was measuring the wrong thing.
 
 **The root cause:** `get_friends_listening_now()` computed its cutoff as a rolling window, `now - 24 hours`, instead of the start of the current day. A rolling 24-hour window moves forward with the clock, so a listen at 11pm remains inside it until 11pm the next day. At 9am the cutoff was 9am yesterday, and darius's 11pm listen sat well after it. The feed's contract, "only friends who have listened today", was never expressed in the code. Its "today" was silently implemented as "within the last 24 hours".
 
