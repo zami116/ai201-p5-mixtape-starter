@@ -1,5 +1,27 @@
 # Mixtape Bug Hunt — Submission
 
+## AI Usage
+
+I used Claude Code (Claude Sonnet 5.5) inside VS Code for this whole project. It did most of the hands-on work, and I directed it, one milestone at a time. Here is what it did, and where its output needed checking.
+
+**Codebase orientation.** I gave Claude the Milestone 1 brief. It read the README, `app.py`, `models.py`, all four route files, all five service files, the seed script, and the test files, then wrote the codebase map. I used it as a guide to the structure and the data flows (rating a song, adding to a playlist, listening). I checked the claims in the map against the files, for example the route-to-service call chain and the `playlist_entries` ordering column.
+
+**Reproduction.** Claude wrote throwaway scripts that call the real endpoints with Flask's test client against an in-memory database, with the clock pinned where a bug depends on time (Sunday streaks, 9am feed). I confirmed each symptom before any code was changed. It also ran the existing test suite, where 4 tests were already failing and pointed at Issues #1, #3 and #5.
+
+**Finding the root causes.** I only asked Claude to trace and explain code, not to guess at bugs first. For each bug it followed the call chain from the route into the service and pointed at the specific line. For #4 it compared the working `add_to_playlist()` against `rate_song()` and found that the second had no `create_notification()` call. I verified each diagnosis by running the code, and by checking that the fix changed the result.
+
+**Where I verified or overrode its output**
+- The first reproduction script for #5 crashed because `POST /playlists/<id>/songs` fails on the NOT NULL `position` and `added_by` columns, so I could not use the API to build the playlist. I switched to inserting rows directly, as `seed_data.py` does. This crash is a separate problem outside the five issues. I left it unfixed and did not count it as part of Issue #5.
+- For #3 there were two options, removing the unused join or adding `.distinct()`. I chose to remove the join, because `.distinct()` would have hidden the extra rows while leaving the pointless join in place.
+- I confirmed that the regression tests fail without the fix. I stashed the fix for #4 and for #2 and re-ran the tests.
+- I checked both sides of the boundary for #1 (skipped day, same day, Sunday) and #2 (23:59:59 yesterday and 00:00:00 today).
+
+**Honest limits**
+- The existing failing tests and the README's list of affected service files made #1, #3 and #5 much easier than a real unfamiliar codebase would be. Claude found the cause of each in a single pass.
+- Claude read all the service files, including the buggy lines, while writing the codebase map in Milestone 1. The map itself describes only the architecture, but I did not do the orientation step from a state of knowing nothing about the bugs.
+- I did not hit a case where Claude's explanation was wrong, so there is no example of overriding a bad diagnosis. The only issue it ran into was the reproduction script crash described above.
+- The five fixes are one- or few-line changes. I should be able to explain each one without Claude's help, and the root cause entries below are meant to let someone who hasn't seen the codebase follow them.
+
 ## Codebase Map
 
 ### Overview
